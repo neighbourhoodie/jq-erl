@@ -3,12 +3,16 @@
 -on_load(init/0).
 
 init() ->
-    case erlang:load_nif("./jq_nif", 0) of
-        {error, {Code, Msg}} ->
-            io:format("---- init result: [~w]: ~s~n", [Code, Msg]);
-        Else ->
-            io:format("---- init result: [~w]~n", [Else])
-    end.
+    PrivDir = case code:priv_dir(?MODULE) of
+        {error, _} ->
+            EbinDir = filename:dirname(code:which(?MODULE)),
+            AppPath = filename:dirname(EbinDir),
+            filename:join(AppPath, "priv");
+        Path ->
+            Path
+    end,
+    io:format("Loading: ~p", [PrivDir]),
+    erlang:load_nif(filename:join(PrivDir, "jq"), 0).
 
 run() ->
     Program = ".foo[0]",
