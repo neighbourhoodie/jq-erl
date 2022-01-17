@@ -43,24 +43,19 @@ json_show({[]}, _, _) ->
     "{}";
 json_show({L}, N, T) when is_list(L) ->
     Rows = lists:map(fun({Key, Value}) ->
-        io_lib:format("~n~s~s: ~s", [
-            tab(T + N),
-            json_show(Key, N, T + N),
-            json_show(Value, N, T + N)
-        ])
+        tab(T + N) ++ json_show(Key, N, T + N) ++ ": " ++ json_show(Value, N, T + N)
     end, L),
-    io_lib:format("{~s~n~s}", [string:join(Rows, ""), tab(T)]);
+    Sep = io_lib:format(",~n", []),
+    io_lib:format("{~n~s~n~s}", [string:join(Rows, Sep), tab(T)]);
 
 json_show([], _, _) ->
     "[]";
 json_show(L, N, T) when is_list(L) ->
     Rows = lists:map(fun(Value) ->
-        io_lib:format("~n~s~s", [
-            tab(T + N),
-            json_show(Value, N, T + N)
-        ])
+        tab(T + N) ++ json_show(Value, N, T + N)
     end, L),
-    io_lib:format("[~s~n~s]", [string:join(Rows, ""), tab(T)]);
+    Sep = io_lib:format(",~n", []),
+    io_lib:format("[~n~s~n~s]", [string:join(Rows, Sep), tab(T)]);
 
 json_show(V, _, _) when is_binary(V) ->
     io_lib:format("\"~s\"", [V]);

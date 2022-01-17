@@ -53,8 +53,8 @@ If you run `make clean test` you should see:
     ---- value type: object
     {
       "foo": [
-        16
-        32
+        16,
+        32,
         64
       ]
     }
@@ -67,8 +67,8 @@ C value returned to the Erlang program:
     ---- value type: object
     {
       "foo": [
-        16
-        32
+        16,
+        32,
         64
       ]
     }
