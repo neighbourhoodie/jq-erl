@@ -230,21 +230,20 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     char *program = NULL;
     jq_state *jq = jq_init();
-    jv doc = jv_null();
-    jv result = jv_null();
+    jv doc, result = jv_null();
     int jq_flags = 0;
     int fmt_flags = JV_PRINT_PRETTY | JV_PRINT_SPACE2;
-    ERL_NIF_TERM ret;
+    ERL_NIF_TERM ret, item;
+
+    if (!erl_to_jv(env, argv[1], &doc, 0)) {
+        ret = error(env, "failed to convert Erlang JSON value");
+        goto cleanup;
+    }
 
     program = binary_to_cstr(env, argv[0]);
 
     if (program == NULL) {
         ret = error(env, "failed to transfer jq program");
-        goto cleanup;
-    }
-
-    if (!erl_to_jv(env, argv[1], &doc, 0)) {
-        ret = error(env, "failed to convert Erlang JSON value");
         goto cleanup;
     }
 
@@ -258,7 +257,7 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     printf("---- [c] program: <<%s>>\n", program);
 
     if (jv_to_erl(env, doc, &ret)) {
-        ret = ok(env, ret);
+        ret = ok(env, enif_make_list1(env, ret));
     } else {
         ret = error(env, "failed to convert jv JSON value");
     }
@@ -270,19 +269,28 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     jq_compile(jq, program);
     jq_start(jq, doc, jq_flags);
-    result = jq_next(jq);
+    ret = enif_make_list(env, 0);
 
-    if (jv_to_erl(env, result, &ret)) {
-        ret = ok(env, ret);
-    } else {
-        ret = error(env, "failed to convert jv JSON value");
+    while (1) {
+        jv_free(result);
+        result = jq_next(jq);
+
+        if (!jv_is_valid(result)) {
+            break;
+        } else if (jv_to_erl(env, result, &item)) {
+            ret = enif_make_list_cell(env, item, ret);
+        } else {
+            ret = error(env, "failed to convert jv JSON value");
+            goto cleanup;
+        }
     }
+    ret = ok(env, ret);
 
 cleanup:
     free(program);
+    jq_teardown(&jq);
     jv_free(doc);
     jv_free(result);
-    jq_teardown(&jq);
 
     return ret;
 }
