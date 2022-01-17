@@ -12,10 +12,11 @@ int main(int argc, char *argv[])
 
     // to build objects structurally instead of parsing strings...
     //
-    // jv value = jv_object();
-    // jv_object_set(value, jv_string("foo"), jv_number(42));
+    // jv doc = jv_object();
+    // jv_object_set(doc, jv_string("foo"), jv_number(42));
 
-    jv value = jv_parse("{ \"foo\": [16, 32, 64] }");
+    jv doc = jv_parse("{ \"foo\": [16, 32, 64] }");
+    jv result;
 
     char *program = ".foo[] | . + 1";
     int jq_flags = 0;
@@ -23,14 +24,16 @@ int main(int argc, char *argv[])
 
     jq_state *jq = jq_init();
     jq_compile(jq, program);
-    jq_start(jq, value, jq_flags);
+    jq_start(jq, doc, jq_flags);
+    result = jv_null();
 
-    printf("---- value type: %s\n", jv_kind_name(jv_get_kind(value)));
-    jv_show(value, fmt_flags);
+    printf("---- value type: %s\n", jv_kind_name(jv_get_kind(doc)));
+    jv_show(doc, fmt_flags);
     printf("\n");
 
     while (1) {
-        jv result = jq_next(jq);
+        jv_free(result);
+        result = jq_next(jq);
 
         if (!jv_is_valid(result)) {
             break;
@@ -39,10 +42,10 @@ int main(int argc, char *argv[])
         printf("---- result type: %s\n", jv_kind_name(jv_get_kind(result)));
         jv_show(result, fmt_flags);
         printf("\n");
-        jv_free(result);
     }
 
-    // jv_free(value);
     jq_teardown(&jq);
+    jv_free(result);
+    jv_free(doc);
     return 0;
 }
