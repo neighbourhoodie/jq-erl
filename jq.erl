@@ -5,9 +5,9 @@
 init() ->
     case erlang:load_nif("./jq_nif", 0) of
         {error, {Code, Msg}} ->
-            io:format("---- init result: [~w]: ~s~n", [Code, Msg]);
+            io:format("---- [erl] init result: [~w]: ~s~n", [Code, Msg]);
         Else ->
-            io:format("---- init result: [~w]~n", [Else])
+            io:format("---- [erl] init result: [~w]~n", [Else])
     end.
 
 run() ->
@@ -16,10 +16,15 @@ run() ->
         {<<"foo">>, [16, 32, 64]}
     ]},
     JsonValue = json_show(Value),
-    io:format("---- value type: ~s~n", [json_type(Value)]),
+    io:format("---- [erl] value type: ~s~n", [json_type(Value)]),
     io:format("~s~n", [JsonValue]),
-    io:format("---- result: ~w~n", [jq(Program, JsonValue)]),
-    io:format("---- result: ~w~n", [jq_simple()]).
+    case jq(Program, JsonValue) of
+        {ok, Results} ->
+            io:format("---- [erl] jq/2 result: ~s~n", [Results]);
+        {error, Msg} ->
+            io:format("---- [erl] jq/2 failed: ~s~n", [Msg])
+    end,
+    io:format("---- [erl] jq_simple/0 result: ~w~n", [jq_simple()]).
 
 jq(_, _) ->
     erlang:nif_error("jq NIF library not loaded").
