@@ -24,11 +24,11 @@ run() ->
         ]}},
         {<<"bools">>, [true, false, null]}
     ]},
-    Program = <<".numbers[1]">>,
+    {ok, Program} = jq_compile(<<".numbers[1]">>),
 
     io:format("---- [erl] value type: ~s~n~s~n", [json_type(Value), json_show(Value)]),
 
-    case jq(Program, Value) of
+    case jq_eval(Program, Value) of
         {ok, Results} ->
             io:format("---- [erl] jq/2 result:~n~s~n", [json_show(Results)]);
         {error, Msg} ->
@@ -37,7 +37,10 @@ run() ->
 
     io:format("---- [erl] jq_simple/0 result: ~w~n", [jq_simple()]).
 
-jq(_, _) ->
+jq_compile(_) ->
+    erlang:nif_error("jq NIF library not loaded").
+
+jq_eval(_, _) ->
     erlang:nif_error("jq NIF library not loaded").
 
 jq_simple() ->

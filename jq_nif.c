@@ -4,6 +4,36 @@
 #include <string.h>
 
 //------------------------------------------------------------------------------
+// Resource declarations
+//------------------------------------------------------------------------------
+//
+// To let us reuse a compiled jq program to evaluate on multiple input
+// documents, we need to create a resource term to hold onto the `jq_state *`
+// returned by `jq_init()`, and pass this pointer to `jq_teardown()` when
+// Erlang releases the term.
+//
+// The value stored in this resource is a `jq_state *` pointer, so pointers
+// into the resource's memory block are `jq_state **`.
+
+static ErlNifResourceType *jq_resource;
+
+static void jq_resource_destroy(ErlNifEnv *env, void *obj)
+{
+    printf("---- [c] jq_resource_destroy()\n");
+    jq_teardown((jq_state **)obj);
+}
+
+static int on_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
+{
+    jq_resource = enif_open_resource_type(env, "jq", "jq_resource",
+            jq_resource_destroy,
+            ERL_NIF_RT_CREATE,
+            NULL);
+
+    return 0;
+}
+
+//------------------------------------------------------------------------------
 // Erlang term helpers
 //------------------------------------------------------------------------------
 
@@ -17,6 +47,53 @@ static ERL_NIF_TERM error(ErlNifEnv *env, char *message)
     return enif_make_tuple2(env,
             enif_make_atom(env, "error"),
             enif_make_string(env, message, ERL_NIF_LATIN1));
+}
+
+//------------------------------------------------------------------------------
+// jq_compile/1
+//------------------------------------------------------------------------------
+//
+// This compiles a jq program passed as an Erlang binary into a `jq_state`
+// struct, and we store a pointer to this in a resource term that we return for
+// later use with jq_eval/2.
+
+static char *binary_to_cstr(ErlNifEnv *env, ERL_NIF_TERM term)
+{
+    ErlNifBinary binary;
+    char *str = NULL;
+
+    if (enif_inspect_binary(env, term, &binary)) {
+        str = malloc(binary.size + 1);
+        memcpy(str, binary.data, binary.size);
+        str[binary.size] = '\0';
+    }
+    return str;
+}
+
+static ERL_NIF_TERM jq_compile_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    char *program = binary_to_cstr(env, argv[0]);
+    jq_state **jq_ptr = NULL;
+    ERL_NIF_TERM ret;
+
+    if (program == NULL) {
+        return error(env, "failed to transfer jq program");
+    }
+
+    printf("---- [c] jq_compile: <<%s>>\n", program);
+
+    jq_ptr = enif_alloc_resource(jq_resource, sizeof(jq_state *));
+    *jq_ptr = jq_init();
+
+    if (1 /* jq_compile(*jq_ptr, program) */) {
+        ret = ok(env, enif_make_resource(env, jq_ptr));
+    } else {
+        ret = error(env, "failed to compile jq program");
+    }
+
+    enif_release_resource(jq_ptr);
+    free(program);
+    return ret;
 }
 
 //------------------------------------------------------------------------------
@@ -209,27 +286,13 @@ static int jv_to_erl(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
     return 1;
 }
 
-static char *binary_to_cstr(ErlNifEnv *env, ERL_NIF_TERM term)
-{
-    ErlNifBinary binary;
-    char *str = NULL;
-
-    if (enif_inspect_binary(env, term, &binary)) {
-        str = malloc(binary.size + 1);
-        memcpy(str, binary.data, binary.size);
-        str[binary.size] = '\0';
-    }
-    return str;
-}
-
 //------------------------------------------------------------------------------
-// jq/2
+// jq_eval/2
 //------------------------------------------------------------------------------
 
-static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+static ERL_NIF_TERM jq_eval_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
-    char *program = NULL;
-    jq_state *jq = jq_init();
+    jq_state **jq_ptr = NULL;
     jv doc, result = jv_null();
     int jq_flags = 0;
     int fmt_flags = JV_PRINT_PRETTY | JV_PRINT_SPACE2;
@@ -240,13 +303,6 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         goto cleanup;
     }
 
-    program = binary_to_cstr(env, argv[0]);
-
-    if (program == NULL) {
-        ret = error(env, "failed to transfer jq program");
-        goto cleanup;
-    }
-
     //----------------------------------------------------------------
     // round-trip test implementation
     //----------------------------------------------------------------
@@ -254,7 +310,6 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     printf("---- [c] converted jv value:\n");
     jv_show(doc, fmt_flags);
     printf("\n");
-    printf("---- [c] program: <<%s>>\n", program);
 
     if (jv_to_erl(env, doc, &ret)) {
         ret = ok(env, enif_make_list1(env, ret));
@@ -267,13 +322,17 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     // jq implementation
     //----------------------------------------------------------------
 
-    jq_compile(jq, program);
-    jq_start(jq, doc, jq_flags);
+    if (!enif_get_resource(env, argv[0], jq_resource, (void **)&jq_ptr)) {
+        ret = error(env, "failed to read compiled jq program");
+        goto cleanup;
+    }
+
+    jq_start(*jq_ptr, doc, jq_flags);
     ret = enif_make_list(env, 0);
 
     while (1) {
         jv_free(result);
-        result = jq_next(jq);
+        result = jq_next(*jq_ptr);
 
         if (!jv_is_valid(result)) {
             break;
@@ -287,8 +346,6 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     ret = ok(env, ret);
 
 cleanup:
-    free(program);
-    jq_teardown(&jq);
     jv_free(doc);
     jv_free(result);
 
@@ -311,8 +368,9 @@ static ERL_NIF_TERM jq_simple_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM a
 //------------------------------------------------------------------------------
 
 static ErlNifFunc nif_funcs[] = {
-    {"jq", 2, jq_nif, 0},
+    {"jq_compile", 1, jq_compile_nif, 0},
+    {"jq_eval", 2, jq_eval_nif, 0},
     {"jq_simple", 0, jq_simple_nif, 0}
 };
 
-ERL_NIF_INIT(jq, nif_funcs, NULL, NULL, NULL, NULL);
+ERL_NIF_INIT(jq, nif_funcs, on_load, NULL, NULL, NULL);
