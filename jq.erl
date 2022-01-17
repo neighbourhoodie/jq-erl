@@ -18,14 +18,14 @@ run() ->
     JsonValue = json_show(Value),
     io:format("---- value type: ~s~n", [json_type(Value)]),
     io:format("~s~n", [JsonValue]),
-    % io:format("---- result: ~w~n", [jq(Program, JsonValue)]).
+    io:format("---- result: ~w~n", [jq(Program, JsonValue)]),
     io:format("---- result: ~w~n", [jq_simple()]).
 
 jq(_, _) ->
-    exit(nif_library_not_loaded).
+    erlang:nif_error("jq NIF library not loaded").
 
 jq_simple() ->
-    exit(nif_library_not_loaded).
+    erlang:nif_error("jq NIF library not loaded").
 
 json_type({T}) when is_list(T) -> "object";
 json_type(T) when is_list(T)   -> "array";
