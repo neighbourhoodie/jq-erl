@@ -11,19 +11,30 @@ init() ->
     end.
 
 run() ->
-    Program = <<".foo[0]">>,
     Value = {[
-        {<<"foo">>, [16, 32, 64]}
+        {<<"numbers">>, [-1, 0, 16, 32.5, 64]},
+        {<<"limits">>, {[
+            {<<"max_i32">>, 2147483647},
+            {<<"max_u32">>, 4294967295},
+            {<<"max_safe_int">>, 9007199254740991}
+        ]}},
+        {<<"float">>, 3.14159e256},
+        {<<"nested">>, {[
+            {atom_key, [<<"bin_value">>]}
+        ]}},
+        {<<"bools">>, [true, false, null]}
     ]},
-    JsonValue = json_show(Value),
-    io:format("---- [erl] value type: ~s~n", [json_type(Value)]),
-    io:format("~s~n", [JsonValue]),
-    case jq(Program, JsonValue) of
+    Program = <<".numbers[1]">>,
+
+    io:format("---- [erl] value type: ~s~n~s~n", [json_type(Value), json_show(Value)]),
+
+    case jq(Program, Value) of
         {ok, Results} ->
-            io:format("---- [erl] jq/2 result: ~s~n", [Results]);
+            io:format("---- [erl] jq/2 result:~n~s~n", [json_show(Results)]);
         {error, Msg} ->
             io:format("---- [erl] jq/2 failed: ~s~n", [Msg])
     end,
+
     io:format("---- [erl] jq_simple/0 result: ~w~n", [jq_simple()]).
 
 jq(_, _) ->
