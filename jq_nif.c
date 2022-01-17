@@ -20,12 +20,29 @@ static ERL_NIF_TERM error(ErlNifEnv *env, char *message)
 }
 
 //------------------------------------------------------------------------------
+// Conversions between Erlang and native values
+//------------------------------------------------------------------------------
+
+static char *binary_to_cstr(ErlNifEnv *env, ERL_NIF_TERM term)
+{
+    ErlNifBinary binary;
+    char *str = NULL;
+
+    if (enif_inspect_binary(env, term, &binary)) {
+        str = malloc(binary.size + 1);
+        memcpy(str, binary.data, binary.size);
+        str[binary.size] = '\0';
+    }
+    return str;
+}
+
+//------------------------------------------------------------------------------
 // jq/2
 //------------------------------------------------------------------------------
 
 static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
-    char program[256];
+    char *program = NULL;
     char value[1024];
     jq_state *jq = jq_init();
     jv doc = jv_null();
@@ -34,7 +51,9 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     int fmt_flags = JV_PRINT_PRETTY | JV_PRINT_SPACE2;
     ERL_NIF_TERM ret;
 
-    if (!enif_get_string(env, argv[0], program, sizeof(program), ERL_NIF_LATIN1)) {
+    program = binary_to_cstr(env, argv[0]);
+
+    if (program == NULL) {
         ret = error(env, "failed to transfer jq program");
         goto cleanup;
     }
@@ -60,6 +79,7 @@ static ERL_NIF_TERM jq_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     ret = ok(env, enif_make_string(env, program, ERL_NIF_LATIN1));
 
 cleanup:
+    free(program);
     jv_free(doc);
     jv_free(result);
     jq_teardown(&jq);

@@ -11,7 +11,7 @@ init() ->
     end.
 
 run() ->
-    Program = ".foo[0]",
+    Program = <<".foo[0]">>,
     Value = {[
         {<<"foo">>, [16, 32, 64]}
     ]},
