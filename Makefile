@@ -17,7 +17,7 @@ test: all
 	erlc $^
 
 jq_nif.so: $(JQ_LIBS) jq_nif.c
-	$(CC) -I $(ERL_INC) -I $(HB_INC) -fpic -shared -flat_namespace -undefined suppress -o $@ $^
+	$(CC) -Wall -Wextra -I $(ERL_INC) -I $(HB_INC) -fpic -shared -flat_namespace -undefined suppress -o $@ $^
 
 myjq: $(JQ_LIBS) myjq.c
 	$(CC) -I $(HB_INC) -o $@ $^
