@@ -11,11 +11,11 @@ init() ->
         Path ->
             Path
     end,
-    io:format("Loading: ~p", [PrivDir]),
+    io:format("---- [erl] Loading: ~p~n", [PrivDir]),
     erlang:load_nif(filename:join(PrivDir, "jq"), 0).
 
 run() ->
-    Value = {[
+    Doc = {[
         {<<"numbers">>, [-1, 0, 16, 32.5, 64]},
         {<<"limits">>, {[
             {<<"max_i32">>, 2147483647},
@@ -29,19 +29,29 @@ run() ->
         {<<"empty">>, [{[]}, []]},
         {<<"bools">>, [true, false, null]}
     ]},
-    {ok, Program} = jq_compile(<<".numbers[]">>),
+    io:format("---- [erl] value type: ~s~n~s~n", [json_type(Doc), json_show(Doc)]),
 
-    io:format("---- [erl] value type: ~s~n~s~n", [json_type(Value), json_show(Value)]),
+    Programs = [
+        <<".numbers">>,
+        <<".numbers[]">>,
+        <<".numbers[] | (. - 3) * 6">>,
+        <<".limits | keys">>,
+        <<".. | .atom_key? // empty">>
+    ],
+    lists:foreach(fun(Program) ->
+        {ok, Jq} = jq_compile(Program),
+        io:format("~n==== [erl] program: <<~s>>~n", [Program]),
 
-    case jq_eval(Program, Value) of
-        {ok, Results} ->
-            lists:foreach(fun(Result) ->
-                io:format("---- [erl] jq/2 result: ~s~n~s~n",
-                        [json_type(Result), json_show(Result)])
-            end, Results);
-        {error, Msg} ->
-            io:format("---- [erl] jq/2 failed: ~s~n", [Msg])
-    end.
+        case jq_eval(Jq, Doc) of
+            {ok, Results} ->
+                lists:foreach(fun(Result) ->
+                    io:format("---- [erl] jq/2 result: ~s~n~s~n",
+                            [json_type(Result), json_show(Result)])
+                end, Results);
+            {error, Msg} ->
+                io:format("---- [erl] jq/2 failed: ~s~n", [Msg])
+        end
+    end, Programs).
 
 jq_compile(_) ->
     erlang:nif_error("jq NIF library not loaded").
