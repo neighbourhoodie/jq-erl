@@ -294,13 +294,13 @@ static ERL_NIF_TERM jq_eval_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     int jq_flags = 0;
     ERL_NIF_TERM ret, item;
 
-    if (!erl_to_jv(env, argv[1], &doc, 0)) {
-        ret = error(env, "failed to convert Erlang JSON value");
+    if (!enif_get_resource(env, argv[0], jq_resource, (void **)&jq_ptr)) {
+        ret = error(env, "failed to read compiled jq program");
         goto cleanup;
     }
 
-    if (!enif_get_resource(env, argv[0], jq_resource, (void **)&jq_ptr)) {
-        ret = error(env, "failed to read compiled jq program");
+    if (!erl_to_jv(env, argv[1], &doc, 0)) {
+        ret = error(env, "failed to convert Erlang JSON value");
         goto cleanup;
     }
 
@@ -323,7 +323,6 @@ static ERL_NIF_TERM jq_eval_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     ret = ok(env, ret);
 
 cleanup:
-    jv_free(doc);
     jv_free(result);
 
     return ret;
