@@ -1,0 +1,11 @@
+*.a
+*.d
+*.o
+*.so
+
+_build/
+priv/
+
+compile_commands.json
+erl_crash.dump
+myjq

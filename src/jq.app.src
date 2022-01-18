@@ -1,0 +1,6 @@
+{application, jq, [
+    {description, "JQ API Bindings."},
+    {vsn, "0.0.0"},
+    {registered, []},
+    {applications, [kernel, stdlib]}
+]}.
