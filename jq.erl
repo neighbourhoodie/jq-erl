@@ -22,6 +22,7 @@ run() ->
         {<<"nested">>, {[
             {atom_key, [<<"bin_value">>]}
         ]}},
+        {<<"empty">>, [{[]}, []]},
         {<<"bools">>, [true, false, null]}
     ]},
     {ok, Program} = jq_compile(<<".numbers[1]">>),
