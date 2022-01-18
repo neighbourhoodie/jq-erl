@@ -19,7 +19,6 @@ static ErlNifResourceType *jq_resource;
 
 static void jq_resource_destroy(ErlNifEnv *env, void *obj)
 {
-    printf("---- [c] jq_resource_destroy()\n");
     jq_teardown((jq_state **)obj);
 }
 
@@ -80,12 +79,10 @@ static ERL_NIF_TERM jq_compile_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM 
         return error(env, "failed to transfer jq program");
     }
 
-    printf("---- [c] jq_compile: <<%s>>\n", program);
-
     jq_ptr = enif_alloc_resource(jq_resource, sizeof(jq_state *));
     *jq_ptr = jq_init();
 
-    if (1 /* jq_compile(*jq_ptr, program) */) {
+    if (jq_compile(*jq_ptr, program)) {
         ret = ok(env, enif_make_resource(env, jq_ptr));
     } else {
         ret = error(env, "failed to compile jq program");
@@ -295,32 +292,12 @@ static ERL_NIF_TERM jq_eval_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     jq_state **jq_ptr = NULL;
     jv doc, result = jv_null();
     int jq_flags = 0;
-    int fmt_flags = JV_PRINT_PRETTY | JV_PRINT_SPACE2;
     ERL_NIF_TERM ret, item;
 
     if (!erl_to_jv(env, argv[1], &doc, 0)) {
         ret = error(env, "failed to convert Erlang JSON value");
         goto cleanup;
     }
-
-    //----------------------------------------------------------------
-    // round-trip test implementation
-    //----------------------------------------------------------------
-
-    printf("---- [c] converted jv value:\n");
-    jv_show(doc, fmt_flags);
-    printf("\n");
-
-    if (jv_to_erl(env, doc, &ret)) {
-        ret = ok(env, enif_make_list1(env, ret));
-    } else {
-        ret = error(env, "failed to convert jv JSON value");
-    }
-    goto cleanup;
-
-    //----------------------------------------------------------------
-    // jq implementation
-    //----------------------------------------------------------------
 
     if (!enif_get_resource(env, argv[0], jq_resource, (void **)&jq_ptr)) {
         ret = error(env, "failed to read compiled jq program");
@@ -353,24 +330,12 @@ cleanup:
 }
 
 //------------------------------------------------------------------------------
-// jq_simple/0
-//------------------------------------------------------------------------------
-
-static ERL_NIF_TERM jq_simple_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
-{
-    jq_state *jq = jq_init();
-    // jq_compile(jq, ".foo");
-    return enif_make_int(env, 42);
-}
-
-//------------------------------------------------------------------------------
 // NIF setup boilerplate
 //------------------------------------------------------------------------------
 
 static ErlNifFunc nif_funcs[] = {
     {"jq_compile", 1, jq_compile_nif, 0},
-    {"jq_eval", 2, jq_eval_nif, 0},
-    {"jq_simple", 0, jq_simple_nif, 0}
+    {"jq_eval", 2, jq_eval_nif, 0}
 };
 
 ERL_NIF_INIT(jq, nif_funcs, on_load, NULL, NULL, NULL);

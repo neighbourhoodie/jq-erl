@@ -29,26 +29,24 @@ run() ->
         {<<"empty">>, [{[]}, []]},
         {<<"bools">>, [true, false, null]}
     ]},
-    {ok, Program} = jq_compile(<<".numbers[1]">>),
+    {ok, Program} = jq_compile(<<".numbers[]">>),
 
     io:format("---- [erl] value type: ~s~n~s~n", [json_type(Value), json_show(Value)]),
 
     case jq_eval(Program, Value) of
         {ok, Results} ->
-            io:format("---- [erl] jq/2 result:~n~s~n", [json_show(Results)]);
+            lists:foreach(fun(Result) ->
+                io:format("---- [erl] jq/2 result: ~s~n~s~n",
+                        [json_type(Result), json_show(Result)])
+            end, Results);
         {error, Msg} ->
             io:format("---- [erl] jq/2 failed: ~s~n", [Msg])
-    end,
-
-    io:format("---- [erl] jq_simple/0 result: ~w~n", [jq_simple()]).
+    end.
 
 jq_compile(_) ->
     erlang:nif_error("jq NIF library not loaded").
 
 jq_eval(_, _) ->
-    erlang:nif_error("jq NIF library not loaded").
-
-jq_simple() ->
     erlang:nif_error("jq NIF library not loaded").
 
 json_type({T}) when is_list(T) -> "object";
