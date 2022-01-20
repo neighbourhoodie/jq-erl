@@ -82,15 +82,21 @@ static char *binary_to_cstr(ErlNifEnv *env, ERL_NIF_TERM term)
 
 static ERL_NIF_TERM jq_compile_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
-    char *program = binary_to_cstr(env, argv[0]);
+    char *program = NULL;
     jq_state **jq_ptr = NULL;
     ERL_NIF_TERM ret;
 
+    program = binary_to_cstr(env, argv[0]);
     if (program == NULL) {
         return error(env, "failed to transfer jq program");
     }
 
     jq_ptr = enif_alloc_resource(jq_resource, sizeof(jq_state *));
+    if (jq_ptr == NULL) {
+        free(program);
+        return error(env, "failed to create resource object");
+    }
+
     *jq_ptr = jq_init();
 
     if (jq_compile(*jq_ptr, program)) {
