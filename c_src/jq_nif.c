@@ -227,20 +227,71 @@ static int ejson_to_jv(ErlNifEnv *env, ERL_NIF_TERM term, jv *out, int is_key)
     return 1;
 }
 
+// The `jv` type uses a refcounting system to manage lifetimes. JSON objects,
+// arrays, strings and "invalid" values (returned when `jq_next()` runs out of
+// results) are refcounted pointers, while the other types are inline numbers
+// with no heap allocation.
+//
+// The refcount is managed using these functions:
+//
+// - `jv jv_copy(jv)`: increments the refcount and returns the input
+//
+// - `void jv_free(jv)`: decrements the refcount and frees the object's memory
+//   on reaching zero
+//
+// Most of the `jv_*()` functions implement an ownership system where they
+// "consume" i.e. `jv_free()` their inputs internally, so once you pass a value
+// to them you should not reuse it. Conversely they "produce" their outputs
+// i.e. they return values with positive refcounts. To signal that you're no
+// longer using a `jv` value you must either pass it to another `jv_*()`
+// function or `jv_free()` it.
+//
+// Detailed notes on the functions used are given below next to each value
+// type. In general, functions that get an object's length consume the object,
+// so it must be copied to avoid its data being freed before use. The iterator
+// macros leave the object's refcount unchanged, but they copy the keys/values
+// they yield, so those must be freed after use.
+//
+// `jv_to_ejson()` is written to keep the refcount of its input constant,
+// rather than "consuming" the value, so it's up to the caller to call
+// `jv_free()` afterward. This makes it safer to write expressions like
+//
+//      if (jv_to_ejson(env, key, &k) && jv_to_ejson(env, value, &v)) {
+//          // ...
+//      }
+//
+// If `jv_to_ejson()` were responsible for freeing its input, then a failure in
+// converting `key` would result in `value` getting leaked. This has other
+// benefits, such as avoiding freeing values before their containing object or
+// array, and control flow like early returns is easier to deal with, since we
+// don't need to free the input at all exits from this function.
+
 static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
 {
-    int size = 0, i = 0;
+    int size = 0, i = 0, did_convert = 0;
     ERL_NIF_TERM *list = NULL, key, value;
     unsigned char *buf;
 
     switch (jv_get_kind(json)) {
+        // memory management:
+        //      - `jv_object_length()`: frees the object
+        //      - `jv_object_foreach()` macro uses:
+        //          - `jv_object_iter()`: calls `jv_object_iter_next()`
+        //          - `jv_object_iter_next()`: does not copy or free
+        //          - `jv_object_iter_valid()`: does not copy or free
+        //          - `jv_object_iter_key()`: copies the key
+        //          - `jv_object_iter_value()`: copies the value
         case JV_KIND_OBJECT:
             size = jv_object_length(jv_copy(json));
             list = calloc(size, sizeof(ERL_NIF_TERM));
             i = 0;
 
             jv_object_foreach(json, jv_key, jv_value) {
-                if (jv_to_ejson(env, jv_key, &key) && jv_to_ejson(env, jv_value, &value)) {
+                did_convert = jv_to_ejson(env, jv_key, &key) && jv_to_ejson(env, jv_value, &value);
+                jv_free(jv_key);
+                jv_free(jv_value);
+
+                if (did_convert) {
                     list[i++] = enif_make_tuple2(env, key, value);
                 } else {
                     free(list);
@@ -251,12 +302,20 @@ static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
             free(list);
             break;
 
+        // memory management:
+        //      - `jv_array_length()`: frees the array
+        //      - `jv_array_foreach()` macro uses:
+        //          - `jv_array_length(jv_copy(a))`: copies then frees the array
+        //          - `jv_array_get(jv_copy(a), i)`: copies the array, copies the slot, frees the array
         case JV_KIND_ARRAY:
             size = jv_array_length(jv_copy(json));
             list = calloc(size, sizeof(ERL_NIF_TERM));
 
             jv_array_foreach(json, idx, jv_value) {
-                if (jv_to_ejson(env, jv_value, &value)) {
+                did_convert = jv_to_ejson(env, jv_value, &value);
+                jv_free(jv_value);
+
+                if (did_convert) {
                     list[idx] = value;
                 } else {
                     free(list);
@@ -267,12 +326,16 @@ static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
             free(list);
             break;
 
+        // memory management:
+        //      - `jv_string_length_bytes()`: frees the string
+        //      - `jv_string_value()`: does not copy or free
         case JV_KIND_STRING:
-            size = jv_string_length_bytes(json);
+            size = jv_string_length_bytes(jv_copy(json));
             buf = enif_make_new_binary(env, size, out);
             memcpy(buf, jv_string_value(json), size);
             break;
 
+        // memory management: numbers are not refcounted
         case JV_KIND_NUMBER:
             if (jv_is_integer(json)) {
                 *out = enif_make_int64(env, jv_number_value(json));
@@ -281,14 +344,17 @@ static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
             }
             break;
 
+        // memory management: `true` is a constant
         case JV_KIND_TRUE:
             *out = enif_make_atom(env, "true");
             break;
 
+        // memory management: `false` is a constant
         case JV_KIND_FALSE:
             *out = enif_make_atom(env, "false");
             break;
 
+        // memory management: `null` is a constant
         case JV_KIND_NULL:
             *out = enif_make_atom(env, "null");
             break;
@@ -307,42 +373,41 @@ static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
 static ERL_NIF_TERM jq_eval_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     jq_state **jq_ptr = NULL;
-    jv doc, result = jv_null();
-    int jq_flags = 0;
+    jv doc = jv_null(), result = jv_null();
+    int jq_flags = 0, did_convert = 0;
     ERL_NIF_TERM ret, item;
 
     if (!enif_get_resource(env, argv[0], jq_resource, (void **)&jq_ptr)) {
-        ret = error(env, "failed to read compiled jq program");
-        goto cleanup;
+        return error(env, "failed to read compiled jq program");
     }
 
     if (!ejson_to_jv(env, argv[1], &doc, 0)) {
-        ret = error(env, "failed to convert Erlang JSON value");
-        goto cleanup;
+        jv_free(doc);
+        return error(env, "failed to convert Erlang JSON value");
     }
 
     jq_start(*jq_ptr, doc, jq_flags);
     ret = enif_make_list(env, 0);
 
     while (1) {
-        jv_free(result);
+        // calling `jq_next()` frees `doc`
         result = jq_next(*jq_ptr);
 
         if (!jv_is_valid(result)) {
+            jv_free(result);
             break;
-        } else if (jv_to_ejson(env, result, &item)) {
+        }
+
+        did_convert = jv_to_ejson(env, result, &item);
+        jv_free(result);
+
+        if (did_convert) {
             ret = enif_make_list_cell(env, item, ret);
         } else {
-            ret = error(env, "failed to convert jv JSON value");
-            goto cleanup;
+            return error(env, "failed to convert jv JSON value");
         }
     }
-    ret = ok(env, ret);
-
-cleanup:
-    jv_free(result);
-
-    return ret;
+    return ok(env, ret);
 }
 
 //------------------------------------------------------------------------------
