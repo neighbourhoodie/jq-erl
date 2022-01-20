@@ -133,7 +133,7 @@ static int term_is_key(ErlNifEnv *env, ERL_NIF_TERM term)
     return enif_is_atom(env, term) || enif_is_binary(env, term);
 }
 
-static int erl_to_jv(ErlNifEnv *env, ERL_NIF_TERM term, jv *out, int is_key)
+static int ejson_to_jv(ErlNifEnv *env, ERL_NIF_TERM term, jv *out, int is_key)
 {
     jv key, value;
     int tuple_size = 0;
@@ -160,7 +160,7 @@ static int erl_to_jv(ErlNifEnv *env, ERL_NIF_TERM term, jv *out, int is_key)
             if (tuple_size != 2 || !term_is_key(env, items[0])) {
                 return 0;
             }
-            if (erl_to_jv(env, items[0], &key, 1) && erl_to_jv(env, items[1], &value, 0)) {
+            if (ejson_to_jv(env, items[0], &key, 1) && ejson_to_jv(env, items[1], &value, 0)) {
                 *out = jv_object_set(*out, key, value);
             } else {
                 return 0;
@@ -172,7 +172,7 @@ static int erl_to_jv(ErlNifEnv *env, ERL_NIF_TERM term, jv *out, int is_key)
         i = 0;
 
         while (enif_get_list_cell(env, list, &head, &list)) {
-            if (erl_to_jv(env, head, &value, 0)) {
+            if (ejson_to_jv(env, head, &value, 0)) {
                 *out = jv_array_set(*out, i++, value);
             } else {
                 return 0;
@@ -210,7 +210,7 @@ static int erl_to_jv(ErlNifEnv *env, ERL_NIF_TERM term, jv *out, int is_key)
     return 1;
 }
 
-static int jv_to_erl(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
+static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
 {
     int size = 0, i = 0;
     ERL_NIF_TERM *list = NULL, key, value;
@@ -223,7 +223,7 @@ static int jv_to_erl(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
             i = 0;
 
             jv_object_foreach(json, jv_key, jv_value) {
-                if (jv_to_erl(env, jv_key, &key) && jv_to_erl(env, jv_value, &value)) {
+                if (jv_to_ejson(env, jv_key, &key) && jv_to_ejson(env, jv_value, &value)) {
                     list[i++] = enif_make_tuple2(env, key, value);
                 } else {
                     free(list);
@@ -239,7 +239,7 @@ static int jv_to_erl(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
             list = calloc(size, sizeof(ERL_NIF_TERM));
 
             jv_array_foreach(json, idx, jv_value) {
-                if (jv_to_erl(env, jv_value, &value)) {
+                if (jv_to_ejson(env, jv_value, &value)) {
                     list[idx] = value;
                 } else {
                     free(list);
@@ -299,7 +299,7 @@ static ERL_NIF_TERM jq_eval_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         goto cleanup;
     }
 
-    if (!erl_to_jv(env, argv[1], &doc, 0)) {
+    if (!ejson_to_jv(env, argv[1], &doc, 0)) {
         ret = error(env, "failed to convert Erlang JSON value");
         goto cleanup;
     }
@@ -313,7 +313,7 @@ static ERL_NIF_TERM jq_eval_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
 
         if (!jv_is_valid(result)) {
             break;
-        } else if (jv_to_erl(env, result, &item)) {
+        } else if (jv_to_ejson(env, result, &item)) {
             ret = enif_make_list_cell(env, item, ret);
         } else {
             ret = error(env, "failed to convert jv JSON value");
