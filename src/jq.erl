@@ -35,6 +35,7 @@ run() ->
         <<".numbers">>,
         <<".numbers[]">>,
         <<".numbers[] | (. - 3) * 6">>,
+        <<".nested">>,
         <<".limits | keys">>,
         <<".. | .atom_key? // empty">>
     ],
