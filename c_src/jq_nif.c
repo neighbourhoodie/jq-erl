@@ -74,8 +74,10 @@ static char *binary_to_cstr(ErlNifEnv *env, ERL_NIF_TERM term)
 
     if (enif_inspect_binary(env, term, &binary)) {
         str = malloc(binary.size + 1);
-        memcpy(str, binary.data, binary.size);
-        str[binary.size] = '\0';
+        if (str != NULL) {
+            memcpy(str, binary.data, binary.size);
+            str[binary.size] = '\0';
+        }
     }
     return str;
 }
@@ -286,12 +288,16 @@ static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
             list = calloc(size, sizeof(ERL_NIF_TERM));
             i = 0;
 
+            if (list == NULL) {
+                return 0;
+            }
+
             jv_object_foreach(json, jv_key, jv_value) {
                 did_convert = jv_to_ejson(env, jv_key, &key) && jv_to_ejson(env, jv_value, &value);
                 jv_free(jv_key);
                 jv_free(jv_value);
 
-                if (did_convert) {
+                if (did_convert && i < size) {
                     list[i++] = enif_make_tuple2(env, key, value);
                 } else {
                     free(list);
@@ -311,11 +317,15 @@ static int jv_to_ejson(ErlNifEnv *env, jv json, ERL_NIF_TERM *out)
             size = jv_array_length(jv_copy(json));
             list = calloc(size, sizeof(ERL_NIF_TERM));
 
+            if (list == NULL) {
+                return 0;
+            }
+
             jv_array_foreach(json, idx, jv_value) {
                 did_convert = jv_to_ejson(env, jv_value, &value);
                 jv_free(jv_value);
 
-                if (did_convert) {
+                if (did_convert && idx < size) {
                     list[idx] = value;
                 } else {
                     free(list);
